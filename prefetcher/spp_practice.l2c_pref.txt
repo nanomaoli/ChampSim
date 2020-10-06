@@ -1,0 +1,364 @@
+#include "cache.h"
+#include "spp_practice.h"
+
+signature_table st;
+pattern_table   pt;
+prefetch_filter filter;
+global_register ghr;
+
+void CACHE::l2c_prefetcher_initialize() 
+{
+
+}
+
+uint32_t CACHE::l2c_prefetcher_operate(uint64_t addr, uint64_t ip, uint8_t cache_hit, uint8_t type, uint32_t metadata_in)
+{
+    uint64_t page = addr >> LOG2_PAGE_SIZE;
+    uint32_t page_offset = (addr >> LOG2_BLOCK_SIZE) & (PAGE_SIZE / BLOCK_SIZE - 1),
+             last_sig = 0,
+             curr_sig = 0,
+             confidence_q[L2C_MSHR_SIZE],
+             depth = 0;
+
+    int32_t  delta = 0,
+             delta_q[L2C_MSHR_SIZE];
+
+    for (uint32_t i = 0; i < L2C_MSHR_SIZE; i++){
+        confidence_q[i] = 0;
+        delta_q[i] = 0;
+    }
+    confidence_q[0] = 100;
+    ghr.global_accuracy = ghr.pf_issued ? ((100 * ghr.pf_useful) / ghr.pf_issued)  : 0;
+
+    st.update_signature_table(page, page_offset, last_sig, curr_sig, delta);
+
+    filter.check(addr, L2C_DEMAND); 
+
+    if (last_sig) pt.update_pattern_table(last_sig, delta);
+
+    uint64_t base_addr = addr;
+    uint32_t lookahead_conf = 100,
+             pf_q_head = 0, 
+             pf_q_tail = 0;
+    uint8_t  do_lookahead = 0;
+
+#ifdef LOOKAHEAD_ON
+    do {
+#endif
+        uint32_t lookahead_way = pt_way;
+        pt.read_pattern_table(curr_sig, delta_q, confidence_q, lookahead_way, lookahead_conf, pf_q_tail, depth);
+
+        do_lookahead = 0;
+        for (uint32_t i = pf_q_head; i < pf_q_tail; i++) {
+            if (confidence_q[i] >= pf_threshold) {
+                uint64_t pf_addr = (base_addr & ~(BLOCK_SIZE - 1)) + (delta_q[i] << LOG2_BLOCK_SIZE);
+
+                if ((addr & ~(PAGE_SIZE - 1)) == (pf_addr & ~(PAGE_SIZE - 1))) { 
+                    if (filter.check(pf_addr, ((confidence_q[i] >= fill_threshold) ? SPP_L2C_PREFETCH : SPP_LLC_PREFETCH))) {
+		      prefetch_line(ip, addr, pf_addr, ((confidence_q[i] >= fill_threshold) ? FILL_L2 : FILL_LLC), 0); 
+
+                        if (confidence_q[i] >= fill_threshold) {
+                            ghr.pf_issued++;
+                            if (ghr.pf_issued > global_counter_max) {
+                                ghr.pf_issued >>= 1;
+                                ghr.pf_useful >>= 1;
+                            }
+                        }
+                    }
+                } else { 
+#ifdef GHR_ON
+                    ghr.update_entry(curr_sig, confidence_q[i], (pf_addr >> LOG2_BLOCK_SIZE) & 0x3F, delta_q[i]); 
+#endif
+                }
+
+                do_lookahead = 1;
+                pf_q_head++;
+            }
+        }
+
+        if (lookahead_way < pt_way) {
+            uint32_t set = get_hash(curr_sig) % pt_set;
+            base_addr += (pt.delta[set][lookahead_way] << LOG2_BLOCK_SIZE);
+
+            int sig_delta = (pt.delta[set][lookahead_way] < 0) ? (((-1) * pt.delta[set][lookahead_way]) + (1 << (delta_length - 1))) : pt.delta[set][lookahead_way];
+            curr_sig = ((curr_sig << sig_shift_length) ^ sig_delta) & sig_mask;
+        }
+
+#ifdef LOOKAHEAD_ON
+    } while (do_lookahead);
+#endif
+
+    return metadata_in;
+}
+
+uint32_t CACHE::l2c_prefetcher_cache_fill(uint64_t addr, uint32_t set, uint32_t match, uint8_t prefetch, uint64_t evicted_addr, uint32_t metadata_in)
+{
+#ifdef FILTER_ON
+    filter.check(evicted_addr, L2C_EVICT);
+#endif
+
+    return metadata_in;
+}
+
+void CACHE::l2c_prefetcher_final_stats()
+{
+
+}
+
+// TODO: Find a good 64-bit hash function
+uint64_t get_hash(uint64_t key)                                         //question: what's hash func and the meaning of this one
+{
+    // Robert Jenkins' 32 bit mix function
+    key += (key << 12);
+    key ^= (key >> 22);
+    key += (key << 4);
+    key ^= (key >> 9);
+    key += (key << 10);
+    key ^= (key >> 2);
+    key += (key << 7);
+    key ^= (key >> 12);
+
+    // Knuth's multiplicative method
+    key = (key >> 3) * 2654435761;
+
+    return key;
+}
+
+//description of update signature table
+//an iterator goes from 0 to 255 to find: (high priority -> low priority) hit block, fully occupied|validate invalid block, fully occupied|replace by lru
+//break loop as soon as finding target, then update lru number
+void signature_table::update_signature_table(uint64_t page, uint32_t page_offset, uint32_t &last_sig, uint32_t &present_sig, int32_t &delta){
+    uint32_t set = get_hash(page) % st_set, match = st_way, tagbits = page & st_tag_mask;           //question: why modulo % here, the result must be 0
+    uint8_t st_hit = 0;
+    int delta_in_st = 0;
+
+    //hit
+    for(match = 0; match < st_way; match ++){
+        if(valid[set][match] && (tag[set][match] == tagbits)){
+            last_sig = sig[set][match];
+            delta = page_offset - last_offset[set][match];
+            if(delta){
+                delta_in_st = (delta < 0) ? (((-1)*delta) + (1 << (delta_length - 1))) : delta;
+                sig[set][match] = ((last_sig << sig_shift_length) ^ delta_in_st) & sig_mask;
+                present_sig = sig[set][match];
+                last_offset[set][match] = page_offset;
+            }
+            else last_sig = 0；
+            st_hit = 1;
+            break;
+        }
+    }
+    //no entry available, find an invalid one to replace
+    if(match == st_way){
+        for(match = 0; match < st_way; match++){
+            if(valid[set][match] == 0){
+                valid[set][match] = 1;
+                tag[set][match] = tagbits;
+                last_offset[set][match] = page_offset;
+                sig[set][match] = 0;
+                present_sig = sig[set][match];
+                break;
+            }
+        }
+    }
+    //no entry available, replace referring to lru
+    if(match == st_way){
+        for(match =0; match < st_way; match++){
+            if(lru[set][match] == st_way - 1){
+                tag[set][match] = tagbits;
+                last_offset[set][match] = page_offset;
+                sig[set][match] = 0;
+                present_sig = sig[set][match];
+                break;
+            }
+        }
+    }
+    //update lru number
+    for(uint32_t way = 0; way < st_way; way++){
+        if(lru[set][way] < lru[set][match]){
+            lru[set][way]++;
+        }
+    }
+    lru[set][match] = 0;
+}
+
+void pattern_table::update_pattern_table(uint32_t last_sig, int present_delta){
+    uint32_t set = get_hash(last_sig) % pt_set, match = 0;
+
+    //hit
+    for(match = 0; match < pt_way; match++){
+        if(delta[set][match] == present_delta){
+            c_delta[set][match]++;
+            c_sig[set]++;
+            if(c_sig[set] > c_sig_max){
+                for(uint32_t way = 0; way < pt_way; way++){
+                    c_delta[set][way] >>= 1;
+                }
+                c_sig[set] >>= 1;
+            }
+            break;
+        }
+    }
+
+    //miss
+    if(match == pt_way){
+        uint32_t victim_way = pt_way, min_c_delta = c_delta_max;
+        for(match = 0; match < pt_way; match++){
+            if(c_delta[set][match] < min_c_delta){
+                victim_way = match;
+                min_c_delta = c_delta[set][match];
+            }
+        }
+        delta[set][victim_way] = present_delta;
+        c_delta[set][victim_way] = 0;
+        c_sig[set]++;
+        if(c_sig[set] > c_sig_max){
+            for(uint32_t way = 0; way < pt_way; way++){
+                c_delta[set][way] >>= 1;
+            }
+            c_sig[set] >>= 1;
+        }
+    }
+}
+
+void pattern_table::read_pattern_table(uint32_t present_sig, int *prefetch_delta, uint32_t *confidence_q, uint32_t &lookahead_way, uint32_t &lookahead_conf, uint32_t &pf_q_tail, uint32_t &depth)
+{
+    uint32_t set = get_hash(present_sig) % pt_set, local_conf = 0, pf_conf = 0, max_conf = 0;
+    if(c_sig[set]){
+        for(uint32_t way = 0; way < pt_way; way++){
+            local_conf = (100 * c_delta[set][way]) / c_sig[set];
+            pf_conf = depth ? (ghr.global_accuracy * c_delta[set][way] / c_sig[set] * lookahead_conf / 100) : local_conf;
+
+            if(pf_conf >= pf_threshold){
+                confidence_q[pf_q_tail] = pf_conf;
+                prefetch_delta[pf_q_tail] = delta[set][way];
+                if (pf_conf > max_conf) {
+                    lookahead_way = way;
+                    max_conf = pf_conf;
+                }
+                pf_q_tail++;
+            }
+        }
+        lookahead_conf = max_conf;
+        if(lookahead_conf >= pf_threshold) depth++;
+    } else confidence_q[pf_q_tail] = 0;
+
+}
+
+bool prefetch_filter::check(uint64_t check_addr, filter_request filter_request)
+{
+    uint64_t cache_line = check_addr >> LOG2_BLOCK_SIZE,
+             hash = get_hash(cache_line),
+             quotient = (hash >> remainder_bit) & ((1 << quotient_bit) - 1),
+             remainder = hash % (1 << remainder_bit);
+
+    switch (filter_request) {
+        case SPP_L2C_PREFETCH:
+            if ((valid[quotient] || useful[quotient]) && remainder_tag[quotient] == remainder) { 
+                return false; 
+            } else {
+                valid[quotient] = 1; 
+                useful[quotient] = 0; 
+                remainder_tag[quotient] = remainder;
+            }
+            break;
+
+        case SPP_LLC_PREFETCH:
+            if ((valid[quotient] || useful[quotient]) && remainder_tag[quotient] == remainder) { 
+                return false; // False return indicates "Do not prefetch"
+            } else {
+                // NOTE: SPP_LLC_PREFETCH has relatively low confidence (fill_threshold <= SPP_LLC_PREFETCH < pf_threshold) 
+                // Therefore, it is safe to prefetch this cache line in the large LLC and save precious L2C capacity
+                // If this prefetch request becomes more confident and SPP eventually issues SPP_L2C_PREFETCH,
+                // we can get this cache line immediately from the LLC (not from DRAM)
+                // To allow this fast prefetch from LLC, SPP does not set the valid bit for SPP_LLC_PREFETCH
+
+                //valid[quotient] = 1;
+                //useful[quotient] = 0;
+
+                SPP_DP (
+                    cout << "[filter] " << __func__ << " don't set valid for check_addr: " << hex << check_addr << " cache_line: " << cache_line << dec;
+                    cout << " quotient: " << quotient << " valid: " << valid[quotient] << " useful: " << useful[quotient] << endl; 
+                );
+            }
+            break;
+
+        case L2C_DEMAND:
+            if ((remainder_tag[quotient] == remainder) && (useful[quotient] == 0)) {
+                useful[quotient] = 1;
+                if (valid[quotient]) ghr.pf_useful++; // This cache line was prefetched by SPP and actually used in the program
+
+                SPP_DP (
+                    cout << "[filter] " << __func__ << " set useful for check_addr: " << hex << check_addr << " cache_line: " << cache_line << dec;
+                    cout << " quotient: " << quotient << " valid: " << valid[quotient] << " useful: " << useful[quotient];
+                    cout << " ghr.pf_issued: " << ghr.pf_issued << " ghr.pf_useful: " << ghr.pf_useful << endl; 
+                );
+            }
+            break;
+
+        case L2C_EVICT:
+            // Decrease global pf_useful counter when there is a useless prefetch (prefetched but not used)
+            if (valid[quotient] && !useful[quotient] && ghr.pf_useful) ghr.pf_useful--;
+
+            // Reset filter entry
+            valid[quotient] = 0;
+            useful[quotient] = 0;
+            remainder_tag[quotient] = 0;
+            break;
+
+        default:
+            // Assertion
+            cout << "[filter] Invalid filter request type: " << filter_request << endl;
+            assert(0);
+    }
+
+    return true;
+}
+
+void global_register::update_entry(uint32_t pf_sig, uint32_t pf_confidence, uint32_t pf_offset, int pf_delta) 
+{
+    uint32_t min_conf = 100,
+             victim_way = max_ghr_entry;
+
+    for (uint32_t i = 0; i < max_ghr_entry; i++) {
+        if (valid[i] && (offset[i] == pf_offset)) {
+            sig[i] = pf_sig;
+            confidence[i] = pf_confidence;
+            //offset[i] = pf_offset;
+            delta[i] = pf_delta;
+
+            return;
+        }
+        if (confidence[i] < min_conf) {
+            min_conf = confidence[i];
+            victim_way = i;
+        }
+    }
+
+    // Assertion
+    if (victim_way >= max_ghr_entry) {
+        cout << "[ghr] Cannot find a replacement victim!" << endl;
+        assert(0);
+    }
+
+    valid[victim_way] = 1;
+    sig[victim_way] = pf_sig;
+    confidence[victim_way] = pf_confidence;
+    offset[victim_way] = pf_offset;
+    delta[victim_way] = pf_delta;
+}
+
+uint32_t global_register::check_entry(uint32_t page_offset)
+{
+    uint32_t max_conf = 0,
+             max_conf_way = max_ghr_entry;
+
+    for (uint32_t i = 0; i < max_ghr_entry; i++) {
+        if ((offset[i] == page_offset) && (max_conf < confidence[i])) {
+            max_conf = confidence[i];
+            max_conf_way = i;
+        }
+    }
+
+    return max_conf_way;
+}
