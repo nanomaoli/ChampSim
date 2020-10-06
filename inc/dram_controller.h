@@ -11,6 +11,7 @@
 #define tRP_DRAM_NANOSECONDS  12.5
 #define tRCD_DRAM_NANOSECONDS 12.5
 #define tCAS_DRAM_NANOSECONDS 12.5
+#define CPU_FREQ 4000
 
 // the data bus must wait this amount of time when switching between reads and writes, and vice versa
 #define DRAM_DBUS_TURN_AROUND_TIME ((15*CPU_FREQ)/2000) // 7.5 ns 
@@ -25,7 +26,7 @@ extern uint32_t DRAM_MTPS, DRAM_DBUS_RETURN_TIME;
 class MEMORY_CONTROLLER : public MEMORY {
   public:
     const string NAME;
-
+    uint32_t rp, rcd, cas;
     DRAM_ARRAY dram_array[DRAM_CHANNELS][DRAM_RANKS][DRAM_BANKS];
     uint64_t dbus_cycle_available[DRAM_CHANNELS], dbus_cycle_congested[DRAM_CHANNELS], dbus_congested[NUM_TYPES+1][NUM_TYPES+1];
     uint64_t bank_cycle_available[DRAM_CHANNELS][DRAM_RANKS][DRAM_BANKS];
@@ -39,7 +40,8 @@ class MEMORY_CONTROLLER : public MEMORY {
     PACKET_QUEUE WQ[DRAM_CHANNELS], RQ[DRAM_CHANNELS];
 
     // constructor
-    MEMORY_CONTROLLER(string v1) : NAME (v1) {
+    //MEMORY_CONTROLLER(string v1) : NAME (v1) {
+    MEMORY_CONTROLLER(string v1,uint32_t t1,uint32_t t2,uint32_t t3) : NAME (v1),rp(t1),rcd(t2),cas(t3) {
         for (uint32_t i=0; i<NUM_TYPES+1; i++) {
             for (uint32_t j=0; j<NUM_TYPES+1; j++) {
                 dbus_congested[i][j] = 0;
@@ -70,6 +72,9 @@ class MEMORY_CONTROLLER : public MEMORY {
 
         fill_level = FILL_DRAM;
     };
+
+    // my constructor 1
+    //MEMORY_CONTROLLER()
 
     // destructor
     ~MEMORY_CONTROLLER() {

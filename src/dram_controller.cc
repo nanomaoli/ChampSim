@@ -1,4 +1,4 @@
-#include "dram_controller.h"
+#include "dram_controller.h" //
 
 // initialized in main.cc
 uint32_t DRAM_MTPS, DRAM_DBUS_RETURN_TIME,
@@ -21,7 +21,7 @@ void MEMORY_CONTROLLER::reset_remain_requests(PACKET_QUEUE *queue, uint32_t chan
 #endif
 
             // update open row
-            if ((bank_request[op_channel][op_rank][op_bank].cycle_available - tCAS) <= current_core_cycle[op_cpu])
+            if ((bank_request[op_channel][op_rank][op_bank].cycle_available - cas) <= current_core_cycle[op_cpu])
                 bank_request[op_channel][op_rank][op_bank].open_row = op_row;
             else
                 bank_request[op_channel][op_rank][op_bank].open_row = UINT32_MAX;
@@ -219,9 +219,9 @@ void MEMORY_CONTROLLER::schedule(PACKET_QUEUE *queue)
 
         uint64_t LATENCY = 0;
         if (row_buffer_hit)  
-            LATENCY = tCAS;
+            LATENCY = cas;
         else 
-            LATENCY = tRP + tRCD + tCAS;
+            LATENCY = rp + rcd + cas;
 
         uint64_t op_addr = queue->entry[oldest_index].address;
         uint32_t op_cpu = queue->entry[oldest_index].cpu,
@@ -232,7 +232,12 @@ void MEMORY_CONTROLLER::schedule(PACKET_QUEUE *queue)
 #ifdef DEBUG_PRINT
         uint32_t op_column = dram_get_column(op_addr);
 #endif
-
+        
+        //if (op_bank >= 1)
+        //    LATENCY = 10 * LATENCY;
+        //else
+        //    LATENCY = LATENCY;
+        
         // this bank is now busy
         bank_request[op_channel][op_rank][op_bank].working = 1;
         bank_request[op_channel][op_rank][op_bank].working_type = queue->entry[oldest_index].type;
