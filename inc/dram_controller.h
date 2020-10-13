@@ -11,7 +11,19 @@
 #define tRP_DRAM_NANOSECONDS  12.5
 #define tRCD_DRAM_NANOSECONDS 12.5
 #define tCAS_DRAM_NANOSECONDS 12.5
-#define CPU_FREQ 4000
+//#define CPU_FREQ 4000
+
+// add some macro definition here to replace variables
+// DRAM access latency
+#define TRP_DRAM (uint32_t)((1.0 * tRP_DRAM_NANOSECONDS  * CPU_FREQ) / 1000) 
+#define TRCD_DRAM (uint32_t)((1.0 * tRCD_DRAM_NANOSECONDS * CPU_FREQ) / 1000) 
+#define TCAS_DRAM (uint32_t)((1.0 * tCAS_DRAM_NANOSECONDS * CPU_FREQ) / 1000)
+#define TRP_NVM TRP_DRAM*10
+#define TRCD_NVM TRCD_DRAM*10
+#define TCAS_NVM TCAS_DRAM*10
+//#define TRP_NVM TRP_DRAM
+//#define TRCD_NVM TRCD_DRAM
+//#define TCAS_NVM TCAS_DRAM
 
 // the data bus must wait this amount of time when switching between reads and writes, and vice versa
 #define DRAM_DBUS_TURN_AROUND_TIME ((15*CPU_FREQ)/2000) // 7.5 ns 

@@ -120,10 +120,14 @@ void print_dram_stats()
     cout << "DRAM Statistics" << endl;
     for (uint32_t i=0; i<DRAM_CHANNELS; i++) {
         cout << " CHANNEL " << i << endl;
-        cout << " RQ ROW_BUFFER_HIT: " << setw(10) << uncore.DRAM.RQ[i].ROW_BUFFER_HIT << "  ROW_BUFFER_MISS: " << setw(10) << uncore.DRAM.RQ[i].ROW_BUFFER_MISS << endl;
-        cout << " DBUS_CONGESTED: " << setw(10) << uncore.DRAM.dbus_congested[NUM_TYPES][NUM_TYPES] << endl; 
-        cout << " WQ ROW_BUFFER_HIT: " << setw(10) << uncore.DRAM.WQ[i].ROW_BUFFER_HIT << "  ROW_BUFFER_MISS: " << setw(10) << uncore.DRAM.WQ[i].ROW_BUFFER_MISS;
-        cout << "  FULL: " << setw(10) << uncore.DRAM.WQ[i].FULL << endl; 
+        //cout << " RQ ROW_BUFFER_HIT: " << setw(10) << uncore.DRAM.RQ[i].ROW_BUFFER_HIT << "  ROW_BUFFER_MISS: " << setw(10) << uncore.DRAM.RQ[i].ROW_BUFFER_MISS << endl;
+        //cout << " DBUS_CONGESTED: " << setw(10) << uncore.DRAM.dbus_congested[NUM_TYPES][NUM_TYPES] << endl; 
+        //cout << " WQ ROW_BUFFER_HIT: " << setw(10) << uncore.DRAM.WQ[i].ROW_BUFFER_HIT << "  ROW_BUFFER_MISS: " << setw(10) << uncore.DRAM.WQ[i].ROW_BUFFER_MISS;
+        //cout << "  FULL: " << setw(10) << uncore.DRAM.WQ[i].FULL << endl; 
+        cout << " RQ ROW_BUFFER_HIT: " << setw(10) << uncore.NVM.RQ[i].ROW_BUFFER_HIT << "  ROW_BUFFER_MISS: " << setw(10) << uncore.NVM.RQ[i].ROW_BUFFER_MISS << endl;
+        cout << " DBUS_CONGESTED: " << setw(10) << uncore.NVM.dbus_congested[NUM_TYPES][NUM_TYPES] << endl; 
+        cout << " WQ ROW_BUFFER_HIT: " << setw(10) << uncore.NVM.WQ[i].ROW_BUFFER_HIT << "  ROW_BUFFER_MISS: " << setw(10) << uncore.NVM.WQ[i].ROW_BUFFER_MISS;
+        cout << "  FULL: " << setw(10) << uncore.NVM.WQ[i].FULL << endl;
         cout << endl;
     }
 
