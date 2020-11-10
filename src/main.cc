@@ -117,17 +117,23 @@ void print_branch_stats()
 void print_dram_stats()
 {
     cout << endl;
-    cout << "DRAM Statistics" << endl;
+    cout << "NVM Statistics" << endl;
     for (uint32_t i=0; i<DRAM_CHANNELS; i++) {
         cout << " CHANNEL " << i << endl;
-        //cout << " RQ ROW_BUFFER_HIT: " << setw(10) << uncore.DRAM.RQ[i].ROW_BUFFER_HIT << "  ROW_BUFFER_MISS: " << setw(10) << uncore.DRAM.RQ[i].ROW_BUFFER_MISS << endl;
-        //cout << " DBUS_CONGESTED: " << setw(10) << uncore.DRAM.dbus_congested[NUM_TYPES][NUM_TYPES] << endl; 
-        //cout << " WQ ROW_BUFFER_HIT: " << setw(10) << uncore.DRAM.WQ[i].ROW_BUFFER_HIT << "  ROW_BUFFER_MISS: " << setw(10) << uncore.DRAM.WQ[i].ROW_BUFFER_MISS;
-        //cout << "  FULL: " << setw(10) << uncore.DRAM.WQ[i].FULL << endl; 
         cout << " RQ ROW_BUFFER_HIT: " << setw(10) << uncore.NVM.RQ[i].ROW_BUFFER_HIT << "  ROW_BUFFER_MISS: " << setw(10) << uncore.NVM.RQ[i].ROW_BUFFER_MISS << endl;
         cout << " DBUS_CONGESTED: " << setw(10) << uncore.NVM.dbus_congested[NUM_TYPES][NUM_TYPES] << endl; 
         cout << " WQ ROW_BUFFER_HIT: " << setw(10) << uncore.NVM.WQ[i].ROW_BUFFER_HIT << "  ROW_BUFFER_MISS: " << setw(10) << uncore.NVM.WQ[i].ROW_BUFFER_MISS;
         cout << "  FULL: " << setw(10) << uncore.NVM.WQ[i].FULL << endl;
+        cout << endl;
+    }
+    
+    cout << "DRAM Statistics" << endl;  // add this for loop for DRAM
+    for (uint32_t i=0; i<DRAM_CHANNELS; i++) {
+        cout << " CHANNEL " << i << endl;
+        cout << " RQ ROW_BUFFER_HIT: " << setw(10) << uncore.DRAM.RQ[i].ROW_BUFFER_HIT << "  ROW_BUFFER_MISS: " << setw(10) << uncore.DRAM.RQ[i].ROW_BUFFER_MISS << endl;
+        cout << " DBUS_CONGESTED: " << setw(10) << uncore.DRAM.dbus_congested[NUM_TYPES][NUM_TYPES] << endl; 
+        cout << " WQ ROW_BUFFER_HIT: " << setw(10) << uncore.DRAM.WQ[i].ROW_BUFFER_HIT << "  ROW_BUFFER_MISS: " << setw(10) << uncore.DRAM.WQ[i].ROW_BUFFER_MISS;
+        cout << "  FULL: " << setw(10) << uncore.DRAM.WQ[i].FULL << endl; 
         cout << endl;
     }
 
@@ -136,9 +142,12 @@ void print_dram_stats()
         //total_congested_cycle += uncore.DRAM.dbus_cycle_congested[i];
     //if (uncore.DRAM.dbus_congested[NUM_TYPES][NUM_TYPES])
         //cout << " AVG_CONGESTED_CYCLE: " << (total_congested_cycle / uncore.DRAM.dbus_congested[NUM_TYPES][NUM_TYPES]) << endl;
-        total_congested_cycle += uncore.NVM.dbus_cycle_congested[i];
-    if (uncore.NVM.dbus_congested[NUM_TYPES][NUM_TYPES])
-        cout << " AVG_CONGESTED_CYCLE: " << (total_congested_cycle / uncore.NVM.dbus_congested[NUM_TYPES][NUM_TYPES]) << endl;
+//        total_congested_cycle += uncore.NVM.dbus_cycle_congested[i];
+//    if (uncore.NVM.dbus_congested[NUM_TYPES][NUM_TYPES])
+//        cout << " AVG_CONGESTED_CYCLE: " << (total_congested_cycle / uncore.NVM.dbus_congested[NUM_TYPES][NUM_TYPES]) << endl;
+        total_congested_cycle += uncore.NVM.dbus_cycle_congested[i]+uncore.DRAM.dbus_cycle_congested[i];
+    if (uncore.NVM.dbus_congested[NUM_TYPES][NUM_TYPES]|uncore.DRAM.dbus_congested[NUM_TYPES][NUM_TYPES])
+        cout << " AVG_CONGESTED_CYCLE: " << (total_congested_cycle / (uncore.NVM.dbus_congested[NUM_TYPES][NUM_TYPES]+uncore.DRAM.dbus_congested[NUM_TYPES][NUM_TYPES])) << endl;
     else
         cout << " AVG_CONGESTED_CYCLE: -" << endl;
 }
@@ -214,10 +223,10 @@ void finish_warmup()
 
     // reset DRAM stats
     for (uint32_t i=0; i<DRAM_CHANNELS; i++) {
-        //uncore.DRAM.RQ[i].ROW_BUFFER_HIT = 0;
-        //uncore.DRAM.RQ[i].ROW_BUFFER_MISS = 0;
-        //uncore.DRAM.WQ[i].ROW_BUFFER_HIT = 0;
-        //uncore.DRAM.WQ[i].ROW_BUFFER_MISS = 0;
+        uncore.DRAM.RQ[i].ROW_BUFFER_HIT = 0; //uncomment first four lines
+        uncore.DRAM.RQ[i].ROW_BUFFER_MISS = 0;
+        uncore.DRAM.WQ[i].ROW_BUFFER_HIT = 0;
+        uncore.DRAM.WQ[i].ROW_BUFFER_MISS = 0;
         uncore.NVM.RQ[i].ROW_BUFFER_HIT = 0;
         uncore.NVM.RQ[i].ROW_BUFFER_MISS = 0;
         uncore.NVM.WQ[i].ROW_BUFFER_HIT = 0;
@@ -764,15 +773,22 @@ int main(int argc, char** argv)
         uncore.LLC.upper_level_icache[i] = &ooo_cpu[i].L2C;
         uncore.LLC.upper_level_dcache[i] = &ooo_cpu[i].L2C;
         //uncore.LLC.lower_level = &uncore.DRAM;
-        uncore.LLC.lower_level = &uncore.NVM;
+//        uncore.LLC.lower_level = &uncore.NVM;
+        uncore.LLC.lower_level = &uncore.HMMU;
+
+        //HMMU added
+        uncore.HMMU.upper_level_icache[i] = &uncore.LLC;
+        uncore.HMMU.upper_level_dcache[i] = &uncore.LLC;
+        uncore.HMMU.lower_level_memory[0] = &uncore.DRAM;
+        uncore.HMMU.lower_level_memory[1] = &uncore.NVM;
 
         // OFF-CHIP DRAM
-        //uncore.DRAM.fill_level = FILL_DRAM;
-        //uncore.DRAM.upper_level_icache[i] = &uncore.LLC;
-        //uncore.DRAM.upper_level_dcache[i] = &uncore.LLC;
-        //for (uint32_t i=0; i<DRAM_CHANNELS; i++) {
-            //uncore.DRAM.RQ[i].is_RQ = 1;
-            //uncore.DRAM.WQ[i].is_WQ = 1;
+        uncore.DRAM.fill_level = FILL_DRAM;  // uncomment these 6 lines
+        uncore.DRAM.upper_level_icache[i] = &uncore.LLC;
+        uncore.DRAM.upper_level_dcache[i] = &uncore.LLC;
+        for (uint32_t i=0; i<DRAM_CHANNELS; i++) {
+            uncore.DRAM.RQ[i].is_RQ = 1;
+            uncore.DRAM.WQ[i].is_WQ = 1;
         uncore.NVM.fill_level = FILL_DRAM;
         uncore.NVM.upper_level_icache[i] = &uncore.LLC;
         uncore.NVM.upper_level_dcache[i] = &uncore.LLC;
@@ -923,8 +939,9 @@ int main(int argc, char** argv)
         }
 
         // TODO: should it be backward?
-        //uncore.DRAM.operate();
+        uncore.DRAM.operate();
         uncore.NVM.operate();
+        uncore.HMMU.operate();
         uncore.LLC.operate();
     }
 
@@ -981,4 +998,5 @@ int main(int argc, char** argv)
 #endif
 
     return 0;
+}
 }

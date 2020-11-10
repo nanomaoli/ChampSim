@@ -52,6 +52,7 @@
 #define FILL_L2    2
 #define FILL_LLC   4
 #define FILL_DRC   8
+#define FILL_HMMU 12
 #define FILL_DRAM 16
 
 // DRAM
@@ -66,6 +67,7 @@
 #define DRAM_COLUMNS 128      // 64B * 32 column chunks (Assuming 1B DRAM cell * 8 chips * 8 transactions = 64B size of column chunks) => 2KB per row
 #define LOG2_DRAM_COLUMNS 7
 #define DRAM_ROW_SIZE (BLOCK_SIZE*DRAM_COLUMNS/1024)
+#define ADDR_WIDTH 32
 
 #define DRAM_SIZE (DRAM_CHANNELS*DRAM_RANKS*DRAM_BANKS*DRAM_ROWS*DRAM_ROW_SIZE/1024) 
 #define DRAM_PAGES ((DRAM_SIZE<<10)>>2) 
